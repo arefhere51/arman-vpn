@@ -1,3 +1,0 @@
-0966ad3b439a2f87adae75842993e040da269ad7c0488a42d9fb9d7357b7ee74  arman-vpn-core-linux-amd64.tar.gz
-23e41ffb075b8f1485cb727339e3aa4e224259138cbee5646d83e812f0c32e60  arman-vpn-core-linux-arm64.tar.gz
-b5526a44be11156d93c53647bf8f570fb508bb4c2de9856a08c3a6dc95800e8f  arman-vpn-core-linux-armv7.tar.gz
