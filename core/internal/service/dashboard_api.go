@@ -920,6 +920,11 @@ func (s *dashboardServer) handleLocationProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	cfg := s.d.config()
+	// config.Config contains slices. Clone this one before changing an entry;
+	// otherwise the shallow copy would mutate d.cfg before updateSettings can
+	// compare the old and new values, so a checkbox change would not restart
+	// the location engines.
+	cfg.LocationProxies = append([]config.LocationProxy(nil), cfg.LocationProxies...)
 	found := false
 	for i := range cfg.LocationProxies {
 		if strings.EqualFold(cfg.LocationProxies[i].Country, code) {
@@ -955,6 +960,7 @@ func (s *dashboardServer) handleLocationProxy(w http.ResponseWriter, r *http.Req
 // handleEnableAllLocationProxies persists enabled listeners for known countries with deterministic free ports.
 func (s *dashboardServer) handleEnableAllLocationProxies(w http.ResponseWriter, r *http.Request) {
 	cfg := s.d.config()
+	cfg.LocationProxies = append([]config.LocationProxy(nil), cfg.LocationProxies...)
 	countries := s.d.refreshLocations(cfg)
 	used := map[int]bool{}
 	for _, lp := range cfg.LocationProxies {

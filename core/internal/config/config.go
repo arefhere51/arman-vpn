@@ -538,7 +538,7 @@ func cleanLocationProxies(cfg *Config) bool {
 			lp.Country = code
 			changed = true
 		}
-		if lp.Port < 1 || lp.Port > 65535 || usedPorts[lp.Port] {
+		if lp.Port < 1024 || lp.Port > 65535 || usedPorts[lp.Port] {
 			if !lp.Enabled {
 				changed = true
 				continue
@@ -805,8 +805,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("location_proxies contains duplicate country %q", code)
 		}
 		seenCountries[code] = true
-		if lp.Port < 1 || lp.Port > 65535 {
-			return fmt.Errorf("location_proxies[%d].port must be between 1 and 65535", i)
+		if lp.Port < 1024 || lp.Port > 65535 {
+			return fmt.Errorf("location_proxies[%d].port must be between 1024 and 65535", i)
 		}
 		if lp.Port == mainPort || lp.Port == panelPort {
 			return fmt.Errorf("location_proxies[%d].port conflicts with another listener", i)
