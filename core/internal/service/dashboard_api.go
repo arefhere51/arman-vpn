@@ -867,6 +867,43 @@ func (d *Daemon) SetSystemProxy(mode string) error {
 	return nil
 }
 
+func validLocationCountry(code string) bool {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if len(code) != 2 {
+		return false
+	}
+	return code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z'
+}
+
+// nextLocationProxyPort returns the first free listener port in the range
+// reserved for location proxies.
+func nextLocationProxyPort(cfg config.Config) int {
+	used := map[int]bool{}
+	if _, portText, err := net.SplitHostPort(cfg.Proxy.Listen); err == nil {
+		if port, err := strconv.Atoi(portText); err == nil {
+			used[port] = true
+		}
+	}
+	if cfg.Dashboard.Enabled {
+		if _, portText, err := net.SplitHostPort(cfg.Dashboard.Listen); err == nil {
+			if port, err := strconv.Atoi(portText); err == nil {
+				used[port] = true
+			}
+		}
+	}
+	for _, lp := range cfg.LocationProxies {
+		if lp.Port > 0 {
+			used[lp.Port] = true
+		}
+	}
+	for port := 20000; port <= 65535; port++ {
+		if !used[port] {
+			return port
+		}
+	}
+	return 0
+}
+
 // handleLocationProxy updates one optional per-country listener. Omitted port preserves an existing value.
 func (s *dashboardServer) handleLocationProxy(w http.ResponseWriter, r *http.Request) {
 	var in struct {
@@ -878,6 +915,10 @@ func (s *dashboardServer) handleLocationProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	code := strings.ToUpper(strings.TrimSpace(in.Country))
+	if !validLocationCountry(code) || code == serverlist.RecommendedCountryCode {
+		writeError(w, http.StatusBadRequest, "location proxy country must be a two-letter country code")
+		return
+	}
 	cfg := s.d.config()
 	found := false
 	for i := range cfg.LocationProxies {
@@ -885,12 +926,23 @@ func (s *dashboardServer) handleLocationProxy(w http.ResponseWriter, r *http.Req
 			if in.Port != 0 {
 				cfg.LocationProxies[i].Port = in.Port
 			}
+			if in.Enabled && cfg.LocationProxies[i].Port == 0 {
+				cfg.LocationProxies[i].Port = nextLocationProxyPort(cfg)
+			}
 			cfg.LocationProxies[i].Enabled = in.Enabled
 			found = true
 			break
 		}
 	}
 	if !found {
+		// Clicking an unchecked row does not need to create a disabled entry.
+		if !in.Enabled {
+			writeJSON(w, http.StatusOK, map[string]bool{"saved": true, "restart": false})
+			return
+		}
+		if in.Port == 0 {
+			in.Port = nextLocationProxyPort(cfg)
+		}
 		cfg.LocationProxies = append(cfg.LocationProxies, config.LocationProxy{Country: code, Port: in.Port, Enabled: in.Enabled})
 	}
 	if _, err := s.d.updateSettings(cfg, nil); err != nil {
@@ -904,10 +956,8 @@ func (s *dashboardServer) handleLocationProxy(w http.ResponseWriter, r *http.Req
 func (s *dashboardServer) handleEnableAllLocationProxies(w http.ResponseWriter, r *http.Request) {
 	cfg := s.d.config()
 	countries := s.d.refreshLocations(cfg)
-	existing := map[string]bool{}
 	used := map[int]bool{}
 	for _, lp := range cfg.LocationProxies {
-		existing[strings.ToUpper(lp.Country)] = true
 		used[lp.Port] = true
 	}
 	_, mainPortText, _ := net.SplitHostPort(cfg.Proxy.Listen)
@@ -921,7 +971,7 @@ func (s *dashboardServer) handleEnableAllLocationProxies(w http.ResponseWriter, 
 	mainCountry := strings.ToUpper(strings.TrimSpace(cfg.Proxy.Country))
 	for _, c := range proxy.ConnectCandidates(countries) {
 		code := strings.ToUpper(c.CountryCode)
-		if code == "" || code == mainCountry {
+		if !validLocationCountry(code) || code == serverlist.RecommendedCountryCode || code == mainCountry {
 			continue
 		}
 		found := false
@@ -944,7 +994,6 @@ func (s *dashboardServer) handleEnableAllLocationProxies(w http.ResponseWriter, 
 			return
 		}
 		used[port] = true
-		existing[code] = true
 		cfg.LocationProxies = append(cfg.LocationProxies, config.LocationProxy{Country: code, Port: port, Enabled: true})
 	}
 	if _, err := s.d.updateSettings(cfg, nil); err != nil {

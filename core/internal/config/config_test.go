@@ -583,3 +583,28 @@ func TestLocationProxyValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestCleanLocationProxiesRemovesRecommendedAndRepairsPorts(t *testing.T) {
+	cfg := Default()
+	cfg.Proxy.Country = "FR"
+	cfg.LocationProxies = []LocationProxy{
+		{Country: "REC", Port: 20000, Enabled: true},
+		{Country: "de", Port: 0, Enabled: true},
+		{Country: "FR", Port: 20001, Enabled: true},
+		{Country: "USA", Port: 20002, Enabled: true},
+	}
+
+	if !cleanLocationProxies(&cfg) {
+		t.Fatal("cleanLocationProxies reported no change")
+	}
+	if len(cfg.LocationProxies) != 1 {
+		t.Fatalf("got %d location proxies, want 1: %+v", len(cfg.LocationProxies), cfg.LocationProxies)
+	}
+	got := cfg.LocationProxies[0]
+	if got.Country != "DE" || got.Port != 20000 || !got.Enabled {
+		t.Fatalf("got repaired location %+v, want DE on port 20000 enabled", got)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("repaired config is invalid: %v", err)
+	}
+}

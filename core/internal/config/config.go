@@ -471,6 +471,9 @@ func Load(path string) (cfg Config, created bool, err error) {
 		cfg.Proxy.AllowLocked = false
 		rewrite = true
 	}
+	if cleanLocationProxies(&cfg) {
+		rewrite = true
+	}
 	cfg.Network.UpstreamProxy = CleanUpstreamProxy(cfg.Network.UpstreamProxy)
 	if cfg.Accounts.Order == nil {
 		cfg.Accounts.Order = []AccountRef{}
@@ -500,6 +503,64 @@ func Load(path string) (cfg Config, created bool, err error) {
 		}
 	}
 	return cfg, false, nil
+}
+
+// cleanLocationProxies migrates old or hand-edited location proxy entries.
+// REC is the server-list code for the recommended anycast location, not a
+// real country, so it must never be persisted as a location listener.
+func cleanLocationProxies(cfg *Config) bool {
+	primary := strings.ToUpper(strings.TrimSpace(cfg.Proxy.Country))
+	usedPorts := make(map[int]bool, len(cfg.LocationProxies)+2)
+	if _, portText, err := net.SplitHostPort(cfg.Proxy.Listen); err == nil {
+		if port, err := strconv.Atoi(portText); err == nil {
+			usedPorts[port] = true
+		}
+	}
+	if cfg.Dashboard.Enabled {
+		if _, portText, err := net.SplitHostPort(cfg.Dashboard.Listen); err == nil {
+			if port, err := strconv.Atoi(portText); err == nil {
+				usedPorts[port] = true
+			}
+		}
+	}
+
+	seenCountries := make(map[string]bool, len(cfg.LocationProxies))
+	cleaned := make([]LocationProxy, 0, len(cfg.LocationProxies))
+	changed := false
+	for _, lp := range cfg.LocationProxies {
+		code := strings.ToUpper(strings.TrimSpace(lp.Country))
+		if len(code) != 2 || code[0] < 'A' || code[0] > 'Z' || code[1] < 'A' || code[1] > 'Z' || code == "REC" || code == primary || seenCountries[code] {
+			changed = true
+			continue
+		}
+		seenCountries[code] = true
+		if lp.Country != code {
+			lp.Country = code
+			changed = true
+		}
+		if lp.Port < 1 || lp.Port > 65535 || usedPorts[lp.Port] {
+			if !lp.Enabled {
+				changed = true
+				continue
+			}
+			port := 20000
+			for port <= 65535 && usedPorts[port] {
+				port++
+			}
+			if port > 65535 {
+				changed = true
+				continue
+			}
+			lp.Port = port
+			changed = true
+		}
+		usedPorts[lp.Port] = true
+		cleaned = append(cleaned, lp)
+	}
+	if changed {
+		cfg.LocationProxies = cleaned
+	}
+	return changed
 }
 
 // CleanUpstreamProxy is network.upstream_proxy as typed or pasted, without the
